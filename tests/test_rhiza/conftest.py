@@ -1,4 +1,10 @@
-"""Pytest configuration and fixtures for setting up a mock git repository with versioning."""
+"""Pytest configuration and fixtures for setting up a mock git repository with versioning.
+
+This file and its associated tests flow down via a SYNC action from the jebel-quant/rhiza repository
+(https://github.com/jebel-quant/rhiza).
+
+Provides test fixtures for testing git-based workflows and version management.
+"""
 
 import logging
 import os
@@ -8,9 +14,41 @@ import subprocess
 
 import pytest
 
+MOCK_MAKE_SCRIPT = """#!/usr/bin/env python3
+import sys
+
+if len(sys.argv) > 1 and sys.argv[1] == "help":
+    print("Mock Makefile Help")
+    print("target: ## Description")
+"""
+
+MOCK_UVX_SCRIPT = """#!/usr/bin/env python3
+import sys
+import os
+
+# args look like: marimushka>=0.1.9 export --notebooks . --output /path/to/output --bin-path ...
+args = sys.argv[1:]
+if "export" in args:
+    try:
+        if "--output" in args:
+            output_idx = args.index("--output")
+            output_dir = args[output_idx + 1]
+            os.makedirs(output_dir, exist_ok=True)
+            with open(os.path.join(output_dir, "index.html"), "w") as f:
+                f.write("<html>Mock Export</html>")
+    except ValueError:
+        pass
+"""
+
 MOCK_UV_SCRIPT = """#!/usr/bin/env python3
 import re
 import sys
+
+try:
+    from packaging.version import parse, InvalidVersion
+    HAS_PACKAGING = True
+except ImportError:
+    HAS_PACKAGING = False
 
 def get_version():
     with open("pyproject.toml", "r") as f:
@@ -38,7 +76,12 @@ def bump_version(current, bump_type):
 def main():
     args = sys.argv[1:]
     # Expected invocations from release.sh start with 'version'
-    if not args or args[0] != "version":
+    if not args:
+        sys.exit(1)
+
+    if args[0] != "version":
+        # It might be a uvx call if we use the same script, but let's keep them separate or handle it here.
+        # For now, let's assume this is only for uv version commands as per original design.
         sys.exit(1)
 
     # uv version --short
@@ -65,6 +108,16 @@ def main():
 
     # uv version <version> --dry-run
     if len(args) >= 2 and not args[1].startswith("-") and "--dry-run" in args:
+        version = args[1]
+        if HAS_PACKAGING:
+            try:
+                parse(version)
+            except InvalidVersion:
+                sys.exit(1)
+        else:
+            # Simple validation: must start with a digit
+            if not re.match(r"^\\d", version):
+                sys.exit(1)
         # Just exit 0 if valid
         return
 
@@ -135,6 +188,16 @@ def git_repo(root, tmp_path, monkeypatch):
         f.write(MOCK_UV_SCRIPT)
     uv_path.chmod(0o755)
 
+    uvx_path = bin_dir / "uvx"
+    with open(uvx_path, "w") as f:
+        f.write(MOCK_UVX_SCRIPT)
+    uvx_path.chmod(0o755)
+
+    make_path = bin_dir / "make"
+    with open(make_path, "w") as f:
+        f.write(MOCK_MAKE_SCRIPT)
+    make_path.chmod(0o755)
+
     # Ensure our bin comes first on PATH so 'uv' resolves to mock
     monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ.get('PATH', '')}")
 
@@ -144,9 +207,13 @@ def git_repo(root, tmp_path, monkeypatch):
 
     shutil.copy(root / ".github" / "scripts" / "release.sh", script_dir / "release.sh")
     shutil.copy(root / ".github" / "scripts" / "bump.sh", script_dir / "bump.sh")
+    shutil.copy(root / ".github" / "scripts" / "marimushka.sh", script_dir / "marimushka.sh")
+    shutil.copy(root / ".github" / "scripts" / "update-readme-help.sh", script_dir / "update-readme-help.sh")
 
     (script_dir / "release.sh").chmod(0o755)
     (script_dir / "bump.sh").chmod(0o755)
+    (script_dir / "marimushka.sh").chmod(0o755)
+    (script_dir / "update-readme-help.sh").chmod(0o755)
 
     # Commit and push initial state
     subprocess.run(["git", "config", "user.email", "test@example.com"], check=True)

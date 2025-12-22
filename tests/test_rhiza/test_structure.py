@@ -1,5 +1,8 @@
 """Tests for the root pytest fixture that yields the repository root Path.
 
+This file and its associated tests flow down via a SYNC action from the jebel-quant/rhiza repository
+(https://github.com/jebel-quant/rhiza).
+
 This module ensures the fixture resolves to the true project root and that
 expected files/directories exist, enabling other tests to locate resources
 reliably.
@@ -60,5 +63,3 @@ class TestRootFixture:
                 warnings.warn("Expected script release.sh not found", stacklevel=2)
             if not (scripts_dir / "bump.sh").exists():
                 warnings.warn("Expected script bump.sh not found", stacklevel=2)
-            if not (scripts_dir / "sync.sh").exists():
-                warnings.warn("Expected script sync.sh not found", stacklevel=2)
